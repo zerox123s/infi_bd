@@ -1,18 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, LogOut, Trash2, Edit2, Shield } from 'lucide-react';
+import { Lock, LogOut, Trash2, Edit2, Shield, Search, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Badge from './Badge';
 
 const API_URL = import.meta.env.VITE_API_URL;
 const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD;
 
+// Custom hook for debounce
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+  return debouncedValue;
+}
+
 const AdminLayout = ({ goBack }) => {
   const [auth, setAuth] = useState(false);
   const [pass, setPass] = useState("");
   const [list, setList] = useState([]);
   const [totalRecords, setTotalRecords] = useState(0);
-  const [adminSearch, setAdminSearch] = useState("");
   const [editingItem, setEditingItem] = useState(null);
+
+  // --- Search State ---
+  const [adminSearch, setAdminSearch] = useState("");
+  const debouncedAdminSearch = useDebounce(adminSearch, 500);
 
   // --- Pagination State ---
   const [page, setPage] = useState(1);
@@ -20,7 +37,7 @@ const AdminLayout = ({ goBack }) => {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const fetchData = (pageNum = 1) => {
+  const fetchData = (pageNum = 1, filters = {}) => {
     if (pageNum === 1) setLoading(true);
     else setLoadingMore(true);
 
@@ -28,6 +45,7 @@ const AdminLayout = ({ goBack }) => {
       page: pageNum,
       limit: 50, // Load more items in admin panel
     });
+    if (filters.nombre) params.append('nombre', filters.nombre);
     
     fetch(`${API_URL}?${params.toString()}`)
       .then(res => res.json())
@@ -46,12 +64,18 @@ const AdminLayout = ({ goBack }) => {
         setLoadingMore(false);
       });
   };
+  
+  // Effect for handling search
+  useEffect(() => {
+    if (auth) { // Only fetch data if authenticated
+      fetchData(1, { nombre: debouncedAdminSearch });
+    }
+  }, [debouncedAdminSearch, auth]); // Re-fetch when search term changes or auth status changes
 
   const login = (e) => { 
     e.preventDefault(); 
     if(pass === ADMIN_PASSWORD) { 
       setAuth(true); 
-      fetchData(1);
     } else {
       toast.error("Contraseña incorrecta"); 
     }
@@ -59,7 +83,7 @@ const AdminLayout = ({ goBack }) => {
 
   const refreshData = () => {
     setList([]);
-    fetchData(1);
+    fetchData(1, { nombre: debouncedAdminSearch }); // Pass current search term on refresh
   };
   
   const del = async (id) => { 
@@ -90,7 +114,11 @@ const AdminLayout = ({ goBack }) => {
     }
   };
 
-  const filteredList = list.filter(item => !adminSearch || item.nombre_completo.toLowerCase().includes(adminSearch.toLowerCase()));
+  const handleLoadMore = () => {
+    if (page < totalPages) {
+      fetchData(page + 1, { nombre: debouncedAdminSearch });
+    }
+  };
 
   if(!auth) return (
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
@@ -110,33 +138,46 @@ const AdminLayout = ({ goBack }) => {
     <div className="min-h-screen bg-slate-950 pb-20 text-slate-200 font-sans">
       <nav className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex justify-between items-center sticky top-0 z-50">
         <div className="flex items-center gap-3"><div className="p-2 bg-green-500/20 rounded-lg text-green-400"><Shield size={20} /></div><h1 className="font-bold text-lg text-white">Admin Panel</h1></div>
-        <button onClick={() => setAuth(false)} className="p-2 hover:bg-white/10 rounded-lg text-red-400"><LogOut size={20}/></button>
+        <button onClick={() => { setAuth(false); setPass(""); }} className="p-2 hover:bg-white/10 rounded-lg text-red-400"><LogOut size={20}/></button>
       </nav>
       <div className="max-w-7xl mx-auto p-6 space-y-6">
         <div className="flex justify-between items-center gap-4 bg-slate-900 p-4 rounded-2xl border border-slate-800">
-           <h2 className="font-bold text-xl text-white">Registros ({list.length} de {totalRecords})</h2>
-           <input value={adminSearch} onChange={e=>setAdminSearch(e.target.value)} placeholder="Buscar en la lista actual..." className="bg-slate-950 border border-slate-800 rounded-xl py-2 px-4 text-white focus:border-blue-500 outline-none"/>
+           <h2 className="font-bold text-xl text-white">Registros ({totalRecords})</h2>
+           <div className="relative">
+              {loading && debouncedAdminSearch ? ( // Show loader only when loading with a search term
+                  <Loader className="absolute left-3 top-3 text-slate-500 animate-spin" size={18} />
+              ) : (
+                  <Search className="absolute left-3 top-3 text-slate-500" size={18} />
+              )}
+              <input value={adminSearch} onChange={e=>setAdminSearch(e.target.value)} placeholder="Buscar por nombre..." className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2 pl-10 pr-4 text-white focus:border-blue-500 outline-none"/>
+           </div>
         </div>
         <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-950 border-b border-slate-800 text-slate-500 uppercase text-xs"><tr><th className="p-4">Usuario</th><th className="p-4">Zona</th><th className="p-4 text-right">Acción</th></tr></thead>
             <tbody className="divide-y divide-slate-800">
-              {filteredList.map(i => (
-                <tr key={i.id} className="hover:bg-slate-800">
-                  <td className="p-4"><div className="font-bold text-white">{i.nombre_completo}</div><div className="text-xs text-slate-500">#{i.id}</div></td>
-                  <td className="p-4"><Badge>{i.departamento}</Badge></td>
-                  <td className="p-4 text-right space-x-2">
-                    <button onClick={() => setEditingItem(i)} className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg"><Edit2 size={18}/></button>
-                    <button onClick={() => del(i.id)} className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg"><Trash2 size={18}/></button>
-                  </td>
-                </tr>
-              ))}
+              {loading && list.length === 0 ? ( // Show loading message if no data and loading
+                <tr><td colSpan="3" className="text-center py-4 text-slate-500">Cargando...</td></tr>
+              ) : list.length === 0 && !loading ? ( // Show no results message if no data and not loading
+                <tr><td colSpan="3" className="text-center py-4 text-slate-500">No se encontraron registros para "{adminSearch}".</td></tr>
+              ) : (
+                list.map(i => (
+                  <tr key={i.id} className="hover:bg-slate-800">
+                    <td className="p-4"><div className="font-bold text-white">{i.nombre_completo}</div><div className="text-xs text-slate-500">#{i.id}</div></td>
+                    <td className="p-4"><Badge>{i.departamento}</Badge></td>
+                    <td className="p-4 text-right space-x-2">
+                      <button onClick={() => setEditingItem(i)} className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg"><Edit2 size={18}/></button>
+                      <button onClick={() => del(i.id)} className="p-2 text-red-400 hover:bg-red-500/10 rounded-lg"><Trash2 size={18}/></button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
         {page < totalPages && (
             <div className="text-center pt-4">
-            <button onClick={() => fetchData(page + 1)} disabled={loadingMore} className="bg-blue-600 text-white py-2 px-5 rounded-xl font-bold text-base hover:bg-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+            <button onClick={handleLoadMore} disabled={loadingMore} className="bg-blue-600 text-white py-2 px-5 rounded-xl font-bold text-base hover:bg-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                 {loadingMore ? 'Cargando...' : 'Cargar Más'}
             </button>
             </div>
