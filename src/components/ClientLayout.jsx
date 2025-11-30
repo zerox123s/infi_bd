@@ -46,7 +46,7 @@ const LatestReportItem = ({ item, onClick }) => (
         </div>
         <div className="flex-1 overflow-hidden">
             <h4 className="font-bold text-white truncate">{item.nombre_completo}</h4>
-            <p className="text-xs text-slate-400">{item.departamento} • {new Date(item.fecha).toLocaleDateString()}</p>
+            <p className="text-xs text-slate-400 truncate">{item.departamento} • {new Date(item.fecha).toLocaleDateString()}</p>
         </div>
         <ChevronRight className="text-slate-600" size={20} />
     </div>

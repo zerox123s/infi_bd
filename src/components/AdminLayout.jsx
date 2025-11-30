@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Lock, LogOut, Trash2, Edit2, Shield } from 'lucide-react';
-import toast from 'react-hot-toast'; // Import toast
+import toast from 'react-hot-toast';
 import Badge from './Badge';
 
 const API_URL = import.meta.env.VITE_API_URL;
@@ -10,21 +10,84 @@ const AdminLayout = ({ goBack }) => {
   const [auth, setAuth] = useState(false);
   const [pass, setPass] = useState("");
   const [list, setList] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [adminSearch, setAdminSearch] = useState("");
   const [editingItem, setEditingItem] = useState(null);
 
-  const login = (e) => { e.preventDefault(); if(pass === ADMIN_PASSWORD) { setAuth(true); load(); } else toast.error("Contraseña incorrecta"); };
-  const load = () => { setLoading(true); fetch(API_URL).then(r=>r.json()).then(d => { setList(d); setLoading(false); }); };
-  const del = async (id) => { if(!confirm("¿Borrar?")) return; const res = await fetch(`${API_URL}/${id}`, { method: 'DELETE', headers: {'x-admin-token': ADMIN_PASSWORD}}); if(res.ok) { toast.success("Reporte eliminado exitosamente."); load(); } else { toast.error("Error al eliminar el reporte."); } };
+  // --- Pagination State ---
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const fetchData = (pageNum = 1) => {
+    if (pageNum === 1) setLoading(true);
+    else setLoadingMore(true);
+
+    const params = new URLSearchParams({
+      page: pageNum,
+      limit: 50, // Load more items in admin panel
+    });
+    
+    fetch(`${API_URL}?${params.toString()}`)
+      .then(res => res.json())
+      .then(d => {
+        setList(prevData => pageNum === 1 ? d.data : [...prevData, ...d.data]);
+        setPage(d.pagina_actual);
+        setTotalPages(d.total_paginas);
+        setTotalRecords(d.total_registros);
+      })
+      .catch(err => {
+        console.error(err);
+        toast.error("Error al cargar los datos.");
+      })
+      .finally(() => {
+        setLoading(false);
+        setLoadingMore(false);
+      });
+  };
+
+  const login = (e) => { 
+    e.preventDefault(); 
+    if(pass === ADMIN_PASSWORD) { 
+      setAuth(true); 
+      fetchData(1);
+    } else {
+      toast.error("Contraseña incorrecta"); 
+    }
+  };
+
+  const refreshData = () => {
+    setList([]);
+    fetchData(1);
+  };
+  
+  const del = async (id) => { 
+    if(!confirm("¿Borrar?")) return; 
+    const res = await fetch(`${API_URL}/${id}`, { method: 'DELETE', headers: {'x-admin-token': ADMIN_PASSWORD}}); 
+    if(res.ok) { 
+      toast.success("Reporte eliminado."); 
+      refreshData();
+    } else { 
+      toast.error("Error al eliminar."); 
+    } 
+  };
   
   const handleUpdate = async (e) => {
     e.preventDefault();
     if(!confirm("¿Guardar cambios?")) return;
     try {
       const res = await fetch(`${API_URL}/${editingItem.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-admin-token': ADMIN_PASSWORD }, body: JSON.stringify(editingItem) });
-      if(res.ok) { setEditingItem(null); load(); toast.success("Reporte actualizado exitosamente."); } else { toast.error("Error al actualizar el reporte."); }
-    } catch(err) { toast.error("Error de conexión con el servidor."); }
+      if(res.ok) { 
+        setEditingItem(null); 
+        toast.success("Reporte actualizado.");
+        refreshData();
+      } else { 
+        toast.error("Error al actualizar."); 
+      }
+    } catch(err) { 
+      toast.error("Error de conexión."); 
+    }
   };
 
   const filteredList = list.filter(item => !adminSearch || item.nombre_completo.toLowerCase().includes(adminSearch.toLowerCase()));
@@ -51,8 +114,8 @@ const AdminLayout = ({ goBack }) => {
       </nav>
       <div className="max-w-7xl mx-auto p-6 space-y-6">
         <div className="flex justify-between items-center gap-4 bg-slate-900 p-4 rounded-2xl border border-slate-800">
-           <h2 className="font-bold text-xl text-white">Registros ({list.length})</h2>
-           <input value={adminSearch} onChange={e=>setAdminSearch(e.target.value)} placeholder="Buscar..." className="bg-slate-950 border border-slate-800 rounded-xl py-2 px-4 text-white focus:border-blue-500 outline-none"/>
+           <h2 className="font-bold text-xl text-white">Registros ({list.length} de {totalRecords})</h2>
+           <input value={adminSearch} onChange={e=>setAdminSearch(e.target.value)} placeholder="Buscar en la lista actual..." className="bg-slate-950 border border-slate-800 rounded-xl py-2 px-4 text-white focus:border-blue-500 outline-none"/>
         </div>
         <div className="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
           <table className="w-full text-left text-sm">
@@ -71,6 +134,13 @@ const AdminLayout = ({ goBack }) => {
             </tbody>
           </table>
         </div>
+        {page < totalPages && (
+            <div className="text-center pt-4">
+            <button onClick={() => fetchData(page + 1)} disabled={loadingMore} className="bg-blue-600 text-white py-2 px-5 rounded-xl font-bold text-base hover:bg-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                {loadingMore ? 'Cargando...' : 'Cargar Más'}
+            </button>
+            </div>
+        )}
       </div>
       {/* Modal de Edición (Simplificado) */}
       {editingItem && (
