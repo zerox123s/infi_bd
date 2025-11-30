@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, Shield, Lock, AlertTriangle, Image as ImageIcon,
-  MapPin, ChevronRight, PlusCircle, Home, Users, Briefcase, TrendingUp, Calendar, Award
+  MapPin, ChevronRight, PlusCircle, Home, Users, Briefcase, TrendingUp, Calendar, Award, Loader
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -19,6 +19,21 @@ const DEPARTAMENTOS = [
   'Ayacucho','Huánuco','Amazonas','Ucayali','Tacna','Pasco','Moquegua',
   'Madre de Dios','Huancavelica','Apurímac','Tumbes'
 ];
+
+// Custom hook for debounce
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+  return debouncedValue;
+}
+
 
 const LatestReportItem = ({ item, onClick }) => (
     <div onClick={onClick} className="bg-slate-900/70 p-4 rounded-xl border border-slate-800 flex items-center gap-4 hover:bg-slate-800 transition-colors cursor-pointer">
@@ -41,9 +56,12 @@ const ClientLayout = ({ navigateToAdmin }) => {
   const [data, setData] = useState([]);
   const [totalRecords, setTotalRecords] = useState(0);
   const [view, setView] = useState("home");
+  const [selectedItem, setSelectedItem] = useState(null);
+
+  // --- Filter and Search State ---
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDep, setSelectedDep] = useState("Todos");
-  const [selectedItem, setSelectedItem] = useState(null);
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
   // --- Pagination State ---
   const [page, setPage] = useState(1);
@@ -51,14 +69,20 @@ const ClientLayout = ({ navigateToAdmin }) => {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const fetchData = (pageNum = 1) => {
-    if (pageNum === 1) {
-      setLoading(true);
-    } else {
-      setLoadingMore(true);
+  const fetchData = (pageNum = 1, filters = {}) => {
+    if (pageNum === 1) setLoading(true);
+    else setLoadingMore(true);
+
+    const params = new URLSearchParams({
+      page: pageNum,
+      limit: 20,
+    });
+    if (filters.nombre) params.append('nombre', filters.nombre);
+    if (filters.departamento && filters.departamento !== 'Todos') {
+      params.append('departamento', filters.departamento);
     }
     
-    fetch(`${API_URL}?page=${pageNum}&limit=20`)
+    fetch(`${API_URL}?${params.toString()}`)
       .then(res => res.json())
       .then(d => {
         setData(prevData => pageNum === 1 ? d.data : [...prevData, ...d.data]);
@@ -78,21 +102,30 @@ const ClientLayout = ({ navigateToAdmin }) => {
 
   const handleLoadMore = () => {
     if (page < totalPages) {
-      fetchData(page + 1);
+      fetchData(page + 1, { nombre: debouncedSearchTerm, departamento: selectedDep });
     }
   };
   
   const refreshAndGoToExplore = () => {
-    setData([]);
-    setPage(1);
+    setSearchTerm("");
+    setSelectedDep("Todos");
     fetchData(1);
     setView('explore');
-    setSelectedDep('Todos');
   }
 
+  // Effect for initial load
   useEffect(() => {
     fetchData(1);
   }, []);
+
+  // Effect for handling filters
+  useEffect(() => {
+    // We don't want to trigger this on initial mount, so we check if not loading
+    if (!loading) {
+      fetchData(1, { nombre: debouncedSearchTerm, departamento: selectedDep });
+    }
+  }, [debouncedSearchTerm, selectedDep]);
+
 
   const openDetail = (item) => {
     setSelectedItem(item);
@@ -100,18 +133,7 @@ const ClientLayout = ({ navigateToAdmin }) => {
     window.scrollTo(0,0);
   };
 
-  const filteredData = useMemo(() => {
-    if (!searchTerm && selectedDep === 'Todos') {
-      return data;
-    }
-    return data.filter(item => {
-      const matchesSearch = !searchTerm || item.nombre_completo.toLowerCase().includes(searchTerm.toLowerCase());
-      const hasDep = item.departamento && item.departamento.trim() !== '';
-      const matchesDep = selectedDep === "Todos" || (hasDep && item.departamento === selectedDep);
-      return matchesSearch && matchesDep;
-    });
-  }, [data, searchTerm, selectedDep]);
-
+  // The stats are now calculated based on the first page of data for the home screen
   const stats = useMemo(() => {
     const latestReports = [...data].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 5);
     
@@ -225,8 +247,12 @@ const ClientLayout = ({ navigateToAdmin }) => {
               <div><h2 className="text-2xl font-bold text-white">Explorar Casos</h2><p className="text-slate-400 text-sm">Mostrando {data.length} de {totalRecords} registros.</p></div>
               <div className="flex gap-2 w-full md:w-auto">
                  <div className="relative flex-1 md:w-64">
-                   <Search className="absolute left-3 top-3 text-slate-500" size={18} />
-                   <input type="text" placeholder="Buscar en los registros cargados..." className="w-full bg-slate-900 border border-slate-800 rounded-xl py-2.5 pl-10 pr-4 text-white focus:ring-2 focus:ring-red-500 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                    {loading && debouncedSearchTerm ? (
+                        <Loader className="absolute left-3 top-3 text-slate-500 animate-spin" size={18} />
+                    ) : (
+                        <Search className="absolute left-3 top-3 text-slate-500" size={18} />
+                    )}
+                   <input type="text" placeholder="Buscar por nombre..." className="w-full bg-slate-900 border border-slate-800 rounded-xl py-2.5 pl-10 pr-4 text-white focus:ring-2 focus:ring-red-500 outline-none" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                  </div>
                  <select className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-white focus:ring-2 focus:ring-red-500 outline-none cursor-pointer" value={selectedDep} onChange={e => setSelectedDep(e.target.value)}>
                    <option value="Todos">Todo el Perú</option>
@@ -240,7 +266,7 @@ const ClientLayout = ({ navigateToAdmin }) => {
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {filteredData.map(item => (
+                  {data.map(item => (
                     <div key={item.id} onClick={() => openDetail(item)} className="group bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden hover:border-red-500/50 hover:shadow-2xl transition-all cursor-pointer relative flex flex-col h-full">
                       <div className="h-56 bg-slate-800 relative overflow-hidden">
                         {item.fotos?.length > 0 ? (
