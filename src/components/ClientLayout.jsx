@@ -39,6 +39,7 @@ const LatestReportItem = ({ item, onClick }) => (
 
 const ClientLayout = ({ navigateToAdmin }) => {
   const [data, setData] = useState([]);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [view, setView] = useState("home");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedDep, setSelectedDep] = useState("Todos");
@@ -63,6 +64,7 @@ const ClientLayout = ({ navigateToAdmin }) => {
         setData(prevData => pageNum === 1 ? d.data : [...prevData, ...d.data]);
         setPage(d.pagina_actual);
         setTotalPages(d.total_paginas);
+        setTotalRecords(d.total_registros);
       })
       .catch(err => {
         console.error(err);
@@ -82,6 +84,7 @@ const ClientLayout = ({ navigateToAdmin }) => {
   
   const refreshAndGoToExplore = () => {
     setData([]);
+    setPage(1);
     fetchData(1);
     setView('explore');
     setSelectedDep('Todos');
@@ -110,10 +113,11 @@ const ClientLayout = ({ navigateToAdmin }) => {
   }, [data, searchTerm, selectedDep]);
 
   const stats = useMemo(() => {
-    if (data.length === 0) {
+    const latestReports = [...data].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 5);
+    
+    if (data.length === 0 && totalRecords === 0) {
       return { total: 0, topName: 'N/A', avgAge: 'N/A', topOcupacion: 'N/A', recentCount: 0, topPerson: 'N/A', latestReports: [] };
     }
-    const total = data.length;
     
     const deps = data.reduce((acc, curr) => {
       if (curr.departamento) acc[curr.departamento] = (acc[curr.departamento] || 0) + 1;
@@ -139,11 +143,9 @@ const ClientLayout = ({ navigateToAdmin }) => {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     const recentCount = data.filter(d => new Date(d.fecha) > sevenDaysAgo).length;
-
-    const latestReports = [...data].sort((a, b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 5);
-
+    
     return { 
-      total, 
+      total: totalRecords, 
       topName: topDep?.[0] || 'N/A', 
       avgAge,
       topOcupacion: topOcupacion?.[0] || 'N/A',
@@ -151,7 +153,7 @@ const ClientLayout = ({ navigateToAdmin }) => {
       topPerson: topPerson?.[0] || 'N/A',
       latestReports
     };
-  }, [data]);
+  }, [data, totalRecords]);
 
   if (view === 'detail') {
     return <ClientDetail item={selectedItem} onBack={() => setView('explore')} />;
@@ -189,7 +191,7 @@ const ClientLayout = ({ navigateToAdmin }) => {
                <div className="relative z-10">
                  <Badge color="red">Base de datos actualizada</Badge>
                  <h2 className="text-3xl md:text-5xl font-bold text-white mt-4 mb-2">La verdad duele, <br/>pero libera.</h2>
-                 <p className="text-red-200/80 max-w-lg text-lg mb-6">Consulta reportes anónimos o colabora.</p>
+                 <p className="text-red-200/80 max-w-lg text-lg mb-6">Consulta la base de datos con {totalRecords > 0 ? `${totalRecords} registros` : 'cientos de registros'}.</p>
                  <button onClick={() => setView('explore')} className="bg-white text-red-900 px-6 py-3 rounded-xl font-bold hover:bg-red-50 transition-colors flex items-center gap-2">Buscar ahora <ChevronRight size={18}/></button>
                </div>
                <div className="absolute top-0 right-0 w-96 h-96 bg-red-600/20 rounded-full blur-[120px] -translate-y-1/2 translate-x-1/2"></div>
@@ -220,7 +222,7 @@ const ClientLayout = ({ navigateToAdmin }) => {
         {view === 'explore' && (
           <div className="space-y-6 animate-in fade-in pb-10">
             <div className="flex flex-col md:flex-row gap-4 justify-between items-center sticky top-20 md:top-0 z-20 bg-slate-950/90 py-4 backdrop-blur-sm">
-              <div><h2 className="text-2xl font-bold text-white">Explorar Casos</h2><p className="text-slate-400 text-sm">Buscar en los registros cargados...</p></div>
+              <div><h2 className="text-2xl font-bold text-white">Explorar Casos</h2><p className="text-slate-400 text-sm">Mostrando {data.length} de {totalRecords} registros.</p></div>
               <div className="flex gap-2 w-full md:w-auto">
                  <div className="relative flex-1 md:w-64">
                    <Search className="absolute left-3 top-3 text-slate-500" size={18} />
